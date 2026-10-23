@@ -173,7 +173,14 @@ jobs:
       - name: Add KernelSU
         run: |
           cd "$CONFIG"
-          curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
+          # Pinned to a commit and checksum-verified. This runs in the same job as
+          # BOOT_SIGN_KEY, so an unpinned branch fetch is a signing-key exfil path.
+          WILD_SHA="9b1f72623d2132322161d7a074656fe8d9e5f312"
+          WILD_SUM="0857ff91a01f7bb19363dff8d6c23fa701876f94febf73f01e0ba55a662ec7ba"
+          curl -LSsfo /tmp/wild_setup.sh \
+            "https://raw.githubusercontent.com/WildKernels/Wild_KSU/${WILD_SHA}/kernel/setup.sh"
+          echo "${WILD_SUM}  /tmp/wild_setup.sh" | sha256sum -c -
+          bash /tmp/wild_setup.sh wild
 
       - name: Getting KernelSU Version
         run: |
@@ -294,7 +301,13 @@ jobs:
         run: |
           cd "$CONFIG"
           echo "Adding BBG..."
-          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          # Pinned to a commit and checksum-verified (see the KSU step above).
+          BBG_SHA="a54e0dc6cf0aff4dd87fec49644a02d2eb612905"
+          BBG_SUM="73d0474bb46b7e413da8f247af09b139e0d49dd8006d2b64fa9ef04676d630b7"
+          wget -qO /tmp/bbg_setup.sh \
+            "https://raw.githubusercontent.com/vc-teahouse/Baseband-guard/${BBG_SHA}/setup.sh"
+          echo "${BBG_SUM}  /tmp/bbg_setup.sh" | sha256sum -c -
+          bash /tmp/bbg_setup.sh
           echo "CONFIG_BBG=y" >> common/arch/arm64/configs/gki_defconfig
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' common/security/Kconfig
 
@@ -685,6 +698,13 @@ jobs:
           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
           cp ./boot-lz4.img ../${{ env.FILE_NAME }}-boot-lz4.img
+
+      - name: Remove boot signing key
+        if: always()
+        run: |
+          # The key was materialised into the workspace earlier; do not leave it
+          # behind for later steps or artifacts.
+          rm -f "$BOOT_SIGN_KEY_PATH" || true
 
       - name: Upload AnyKernel3 Artifacts
         id: upload_ak3
